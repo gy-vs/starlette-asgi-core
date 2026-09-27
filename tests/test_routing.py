@@ -493,6 +493,52 @@ def test_host_reverse_urls() -> None:
         mixed_hosts_app.url_path_for("api", path="whatever", foo="bar")
 
 
+@pytest.mark.parametrize(
+    "host",
+    [
+        pytest.param("api.example.org:abc", id="non-numeric-port"),
+        pytest.param("api.example.org:99999", id="port-out-of-range"),
+        pytest.param("api.example.org:", id="empty-port"),
+        pytest.param("[fe80::1::2]", id="malformed-ipv6"),
+    ],
+)
+def test_host_routing_invalid_host_header(test_client_factory: TestClientFactory, host: str) -> None:
+    """An invalid Host header must not match any host-based route.
+
+    This aligns with `TrustedHostMiddleware`, which rejects such headers with a 400.
+    """
+    client = test_client_factory(mixed_hosts_app, base_url="https://api.example.org/")
+    response = client.get("/users", headers={"host": host})
+    assert response.status_code == 404
+
+
+ipv6_hosts_app = Router(
+    routes=[
+        Host("[::1]", app=Router([Route("/", homepage, name="homepage")])),
+        Host("[::2]:8000", name="ipv6-port", app=Router([Route("/port", homepage, name="homepage")])),
+    ]
+)
+
+
+def test_host_routing_ipv6(test_client_factory: TestClientFactory) -> None:
+    client = test_client_factory(ipv6_hosts_app, base_url="http://[::1]")
+
+    response = client.get("/")
+    assert response.status_code == 200
+
+    # A different IPv6 address must not match the `[::1]` route...
+    response = client.get("/", headers={"host": "[::3]:8000"})
+    assert response.status_code == 404
+
+    # ...and neither must a malformed IPv6 address.
+    response = client.get("/", headers={"host": "[fe80::1::2]"})
+    assert response.status_code == 404
+
+    # The port in the requested Host header is irrelevant, also for IPv6.
+    response = client.get("/port", headers={"host": "[::2]:9000"})
+    assert response.status_code == 200
+
+
 async def subdomain_app(scope: Scope, receive: Receive, send: Send) -> None:
     response = JSONResponse({"subdomain": scope["path_params"]["subdomain"]})
     await response(scope, receive, send)

@@ -179,6 +179,9 @@ def test_url_from_scope() -> None:
         pytest.param(b"user@foo", id="at-sign"),
         pytest.param(b"foo\\bar", id="backslash"),
         pytest.param(b"foo bar", id="space"),
+        pytest.param(b"foo:abc", id="non-numeric-port"),
+        pytest.param(b"foo:99999", id="port-out-of-range"),
+        pytest.param(b"[fe80::1::2]", id="malformed-ipv6"),
     ],
 )
 def test_url_from_scope_with_invalid_host(host: bytes) -> None:
@@ -194,6 +197,53 @@ def test_url_from_scope_with_invalid_host(host: bytes) -> None:
     )
     assert u.path == "/admin"
     assert u.netloc == "example.com"
+
+
+def test_url_from_scope_with_out_of_range_port() -> None:
+    """A Host header with a port above 65535 must not break `.port` access."""
+    u = URL(
+        scope={
+            "scheme": "http",
+            "server": ("example.com", 8080),
+            "path": "/admin",
+            "query_string": b"",
+            "headers": [(b"host", b"example.com:99999")],
+        }
+    )
+    assert u == "http://example.com:8080/admin"
+    assert u.hostname == "example.com"
+    assert u.port == 8080
+
+
+@pytest.mark.parametrize(
+    "server, expected_url, expected_port",
+    [
+        pytest.param(("::1", 8000), "http://[::1]:8000/", 8000, id="ipv6-non-default-port"),
+        pytest.param(("::1", 80), "http://[::1]/", None, id="ipv6-default-port"),
+        pytest.param(("2001:db8::1", 8080), "http://[2001:db8::1]:8080/", 8080, id="ipv6-full"),
+    ],
+)
+def test_url_from_scope_with_ipv6_server(server: tuple[str, int], expected_url: str, expected_port: int | None) -> None:
+    """An IPv6 server address must produce a URL with a usable hostname and port."""
+    u = URL(scope={"scheme": "http", "server": server, "path": "/", "query_string": b"", "headers": []})
+    assert u == expected_url
+    assert u.hostname == server[0]
+    assert u.port == expected_port
+
+
+def test_url_from_scope_with_ipv6_host_header() -> None:
+    u = URL(
+        scope={
+            "scheme": "http",
+            "server": ("example.com", 80),
+            "path": "/",
+            "query_string": b"",
+            "headers": [(b"host", b"[::1]:8000")],
+        }
+    )
+    assert u == "http://[::1]:8000/"
+    assert u.hostname == "::1"
+    assert u.port == 8000
 
 
 @pytest.mark.parametrize(
