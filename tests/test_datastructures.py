@@ -179,6 +179,9 @@ def test_url_from_scope() -> None:
         pytest.param(b"user@foo", id="at-sign"),
         pytest.param(b"foo\\bar", id="backslash"),
         pytest.param(b"foo bar", id="space"),
+        pytest.param(b"foo:99999", id="port-out-of-range"),
+        pytest.param(b"foo:abc", id="port-not-numeric"),
+        pytest.param(b"[fe80::1::2]", id="invalid-ipv6"),
     ],
 )
 def test_url_from_scope_with_invalid_host(host: bytes) -> None:
@@ -194,6 +197,50 @@ def test_url_from_scope_with_invalid_host(host: bytes) -> None:
     )
     assert u.path == "/admin"
     assert u.netloc == "example.com"
+
+
+def test_url_from_scope_with_ipv6_server() -> None:
+    """An IPv6 server address must be wrapped in brackets to form a valid URL."""
+    u = URL(
+        scope={
+            "scheme": "http",
+            "server": ("::1", 8000),
+            "path": "/",
+            "query_string": b"",
+            "headers": [],
+        }
+    )
+    assert u == "http://[::1]:8000/"
+    assert u.hostname == "::1"
+    assert u.port == 8000
+
+    u = URL(
+        scope={
+            "scheme": "http",
+            "server": ("::1", 80),
+            "path": "/",
+            "query_string": b"",
+            "headers": [],
+        }
+    )
+    assert u == "http://[::1]/"
+    assert u.hostname == "::1"
+    assert u.port is None
+
+
+def test_url_from_scope_with_ipv6_host_header() -> None:
+    u = URL(
+        scope={
+            "scheme": "http",
+            "server": ("example.com", 80),
+            "path": "/",
+            "query_string": b"",
+            "headers": [(b"host", b"[::1]:8000")],
+        }
+    )
+    assert u == "http://[::1]:8000/"
+    assert u.hostname == "::1"
+    assert u.port == 8000
 
 
 @pytest.mark.parametrize(

@@ -14,7 +14,7 @@ from re import Pattern
 from typing import Any, TypeVar
 
 from starlette._exception_handler import wrap_app_handling_exceptions
-from starlette._utils import get_route_path, is_async_callable
+from starlette._utils import get_route_path, is_async_callable, parse_host_header
 from starlette.concurrency import run_in_threadpool
 from starlette.convertors import CONVERTOR_TYPES, Convertor
 from starlette.datastructures import URL, Headers, URLPath
@@ -154,7 +154,9 @@ def compile_path(
 
     if is_host:
         # Align with `Host.matches()` behavior, which ignores port.
-        hostname = path[idx:].split(":")[0]
+        # Only a trailing ':<port>' is stripped, so that bracketed IPv6
+        # addresses such as '[::1]' are kept intact.
+        hostname = re.sub(r":[0-9]+$", "", path[idx:])
         path_regex += re.escape(hostname) + "$"
     else:
         path_regex += re.escape(path[idx:]) + "$"
@@ -478,7 +480,9 @@ class Host(BaseRoute):
     def matches(self, scope: Scope) -> tuple[Match, Scope]:
         if scope["type"] in ("http", "websocket"):  # pragma:no branch
             headers = Headers(scope=scope)
-            host = headers.get("host", "").split(":")[0]
+            host = parse_host_header(headers.get("host", ""))
+            if host is None:
+                return Match.NONE, {}
             match = self.host_regex.match(host)
             if match:
                 matched_params = match.groupdict()

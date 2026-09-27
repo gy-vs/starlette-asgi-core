@@ -29,6 +29,35 @@ def test_request_url(test_client_factory: TestClientFactory) -> None:
     assert response.json() == {"method": "GET", "url": "https://example.org:123/"}
 
 
+@pytest.mark.parametrize("host", ["testserver:99999", "testserver:abc", "[fe80::1::2]"])
+def test_request_url_with_invalid_host_header(test_client_factory: TestClientFactory, host: str) -> None:
+    """An invalid Host header must not break `request.url`; it falls back to the server address."""
+
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        request = Request(scope, receive)
+        data = {"url": str(request.url), "hostname": request.url.hostname, "port": request.url.port}
+        response = JSONResponse(data)
+        await response(scope, receive, send)
+
+    client = test_client_factory(app)
+    response = client.get("/", headers={"host": host})
+    assert response.status_code == 200
+    assert response.json() == {"url": "http://testserver/", "hostname": "testserver", "port": None}
+
+
+def test_request_url_with_ipv6_server(test_client_factory: TestClientFactory) -> None:
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
+        request = Request(scope, receive)
+        data = {"url": str(request.url), "hostname": request.url.hostname, "port": request.url.port}
+        response = JSONResponse(data)
+        await response(scope, receive, send)
+
+    client = test_client_factory(app, base_url="http://[::1]:8000")
+    response = client.get("/")
+    assert response.status_code == 200
+    assert response.json() == {"url": "http://[::1]:8000/", "hostname": "::1", "port": 8000}
+
+
 def test_request_query_params(test_client_factory: TestClientFactory) -> None:
     async def app(scope: Scope, receive: Receive, send: Send) -> None:
         request = Request(scope, receive)

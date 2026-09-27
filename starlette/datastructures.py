@@ -48,6 +48,9 @@ class URL:
             elif server is not None:
                 host, port = server
                 default_port = {"http": 80, "https": 443, "ws": 80, "wss": 443}[scheme]
+                if ":" in host:
+                    # IPv6 addresses must be wrapped in brackets in a URL.
+                    host = f"[{host}]"
                 netloc = host if port == default_port else f"{host}:{port}"
             else:
                 netloc = None

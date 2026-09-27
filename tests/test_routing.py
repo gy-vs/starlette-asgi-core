@@ -493,6 +493,53 @@ def test_host_reverse_urls() -> None:
         mixed_hosts_app.url_path_for("api", path="whatever", foo="bar")
 
 
+ipv6_hosts_app = Router(
+    routes=[
+        Host("[::1]", app=Router([Route("/", homepage, name="homepage")]), name="ipv6"),
+        Host("api.example.org", app=Router([Route("/", users_api, name="users")]), name="api"),
+    ]
+)
+
+
+def test_host_routing_ipv6(test_client_factory: TestClientFactory) -> None:
+    client = test_client_factory(ipv6_hosts_app)
+
+    response = client.get("/", headers={"host": "[::1]"})
+    assert response.status_code == 200
+
+    # Port in requested Host is irrelevant.
+    response = client.get("/", headers={"host": "[::1]:8000"})
+    assert response.status_code == 200
+
+    # A different IPv6 address must not match.
+    response = client.get("/", headers={"host": "[::2]:8000"})
+    assert response.status_code == 404
+
+    # An invalid IPv6 address must not match.
+    response = client.get("/", headers={"host": "[fe80::1::2]"})
+    assert response.status_code == 404
+
+
+def test_host_routing_with_invalid_host_header(test_client_factory: TestClientFactory) -> None:
+    """Host headers that fail validation must not match any `Host` route."""
+    client = test_client_factory(ipv6_hosts_app)
+
+    # Valid hostnames match, with any port.
+    response = client.get("/", headers={"host": "api.example.org"})
+    assert response.status_code == 200
+
+    response = client.get("/", headers={"host": "api.example.org:8443"})
+    assert response.status_code == 200
+
+    # Ports out of range must not match.
+    response = client.get("/", headers={"host": "api.example.org:99999"})
+    assert response.status_code == 404
+
+    # Non-numeric ports must not match.
+    response = client.get("/", headers={"host": "api.example.org:abc"})
+    assert response.status_code == 404
+
+
 async def subdomain_app(scope: Scope, receive: Receive, send: Send) -> None:
     response = JSONResponse({"subdomain": scope["path_params"]["subdomain"]})
     await response(scope, receive, send)

@@ -5,7 +5,7 @@ from unittest.mock import create_autospec
 
 import pytest
 
-from starlette._utils import create_collapsing_task_group, get_route_path, is_async_callable
+from starlette._utils import create_collapsing_task_group, get_route_path, is_async_callable, parse_host_header
 from starlette.types import Scope
 
 if sys.version_info < (3, 11):  # pragma: no cover
@@ -106,6 +106,43 @@ def test_async_mocked_async_function() -> None:
 )
 def test_get_route_path(scope: Scope, expected_result: str) -> None:
     assert get_route_path(scope) == expected_result
+
+
+@pytest.mark.parametrize(
+    "host_header, expected",
+    [
+        ("example.com", "example.com"),
+        ("example.com:8000", "example.com"),
+        ("example.com:0", "example.com"),
+        ("example.com:65535", "example.com"),
+        ("api_service", "api_service"),
+        ("[::1]", "[::1]"),
+        ("[::1]:8000", "[::1]"),
+        ("[2001:DB8::1]", "[2001:DB8::1]"),
+        ("[::ffff:1.2.3.4]", "[::ffff:1.2.3.4]"),
+        # Ports out of the 0-65535 range are invalid.
+        ("example.com:65536", None),
+        ("example.com:99999", None),
+        ("[::1]:99999", None),
+        # Ports must be decimal digits.
+        ("example.com:abc", None),
+        ("example.com:", None),
+        ("example.com:-1", None),
+        ("example.com:80:90", None),
+        # Bracketed hosts must be valid IPv6 addresses.
+        ("[fe80::1::2]", None),
+        ("[1.2.3.4]", None),
+        ("[]", None),
+        ("[::1", None),
+        ("::1]", None),
+        ("[::1]evil.example.com", None),
+        # Bare IPv6 addresses and empty headers are invalid.
+        ("::1", None),
+        ("", None),
+    ],
+)
+def test_parse_host_header(host_header: str, expected: str | None) -> None:
+    assert parse_host_header(host_header) == expected
 
 
 @pytest.mark.anyio

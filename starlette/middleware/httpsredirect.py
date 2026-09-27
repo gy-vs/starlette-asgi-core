@@ -11,7 +11,12 @@ class HTTPSRedirectMiddleware:
         if scope["type"] in ("http", "websocket") and scope["scheme"] in ("http", "ws"):
             url = URL(scope=scope)
             redirect_scheme = {"http": "https", "ws": "wss"}[url.scheme]
-            netloc = url.hostname if url.port in (80, 443) else url.netloc
+            if url.port in (80, 443):
+                hostname = url.hostname or ""
+                # IPv6 addresses must be wrapped in brackets in a URL.
+                netloc = f"[{hostname}]" if ":" in hostname else hostname
+            else:
+                netloc = url.netloc
             url = url.replace(scheme=redirect_scheme, netloc=netloc)
             response = RedirectResponse(url, status_code=307)
             await response(scope, receive, send)

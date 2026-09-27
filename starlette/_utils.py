@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import ipaddress
 import re
 import sys
 from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
@@ -32,7 +33,8 @@ T = TypeVar("T")
 AwaitableCallable = Callable[..., Awaitable[T]]
 
 # Reject characters that could make a Host header change the URL path or authority.
-_HOST_RE = re.compile(r"^([a-z0-9._~%!$&'()*+,;=-]+|\[[a-f0-9]*:[a-f0-9.:]+\])(?::[0-9]+)?$", re.IGNORECASE)
+# The authority is a hostname or a bracketed IPv6 address, with an optional decimal port.
+_HOST_RE = re.compile(r"^([a-z0-9._~%!$&'()*+,;=-]+|\[[0-9a-f:.]+\])(?::([0-9]+))?$", re.IGNORECASE)
 
 
 @overload
@@ -101,10 +103,22 @@ def parse_host_header(host_header: str) -> str | None:
     """Parse `host_header` into its host component.
 
     The result excludes the port and preserves brackets around IPv6 addresses.
-    Invalid headers produce `None`.
+    Invalid headers produce `None`. A valid header is a hostname or a bracketed
+    IPv6 address, optionally followed by a decimal port in the range 0-65535,
+    per the `authority` rule of RFC 3986.
     """
     match = _HOST_RE.fullmatch(host_header)
-    return match.group(1) if match is not None else None
+    if match is None:
+        return None
+    host, port = match.groups()
+    if port is not None and int(port) > 65535:
+        return None
+    if host.startswith("["):
+        try:
+            ipaddress.IPv6Address(host[1:-1])
+        except ValueError:
+            return None
+    return host
 
 
 def get_route_path(scope: Scope) -> str:
